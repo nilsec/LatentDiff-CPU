@@ -11,7 +11,7 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
 
-def load_model_from_config(config, ckpt, verbose=False):
+def load_model_from_config(config, ckpt, device, verbose=False):
     print(f"Loading model from {ckpt}")
     pl_sd = torch.load(ckpt, map_location="cpu")
     sd = pl_sd["state_dict"]
@@ -24,7 +24,7 @@ def load_model_from_config(config, ckpt, verbose=False):
         print("unexpected keys:")
         print(u)
 
-    model.cuda()
+    model.to(device)
     model.eval()
     return model
 
@@ -94,13 +94,18 @@ if __name__ == "__main__":
         default=5.0,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
+
+    parser.add_argument(
+        "--request_number",
+        type=int
+    )
+
     opt = parser.parse_args()
 
-
+    device = torch.device("cpu")
     config = OmegaConf.load("configs/latent-diffusion/txt2img-1p4B-eval.yaml")  # TODO: Optionally download from same location as ckpt and chnage this logic
-    model = load_model_from_config(config, "models/ldm/text2img-large/model.ckpt")  # TODO: check path
+    model = load_model_from_config(config, "models/ldm/text2img-large/model.ckpt", device)  # TODO: check path
 
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
     sampler = DDIMSampler(model)
 
@@ -110,9 +115,22 @@ if __name__ == "__main__":
     prompt = opt.prompt
 
 
-    sample_path = os.path.join(outpath, "samples")
+    sample_path = os.path.join(outpath, "frida")
     os.makedirs(sample_path, exist_ok=True)
-    base_count = len(os.listdir(sample_path))
+    base_count = opt.request_number
+
+    def save_intermediate(img, i, ddim_steps):
+        expand_every = 2
+        if i % expand_every == 0 or i == ddim_steps - 1:
+            img = model.decode_first_stage(img)
+            img = torch.clamp((img+1.0)/2.0, min=0.0, max=1.0)
+            img = 255. * rearrange(img[0,:,:,:].cpu().numpy(), 'c h w -> h w c')
+            if i == ddim_steps - 1:
+                current_idx = ddim_steps//2
+            else:
+                current_idx = i//2
+            Image.fromarray(img.astype(np.uint8)).save(os.path.join(sample_path, f"interm_{base_count}_{current_idx}.png"))
+
 
     all_samples=list()
     with torch.no_grad():
@@ -130,7 +148,8 @@ if __name__ == "__main__":
                                                  verbose=False,
                                                  unconditional_guidance_scale=opt.scale,
                                                  unconditional_conditioning=uc,
-                                                 eta=opt.ddim_eta)
+                                                 eta=opt.ddim_eta,
+                                                 img_callback=save_intermediate)
 
                 x_samples_ddim = model.decode_first_stage(samples_ddim)
                 x_samples_ddim = torch.clamp((x_samples_ddim+1.0)/2.0, min=0.0, max=1.0)
@@ -143,12 +162,12 @@ if __name__ == "__main__":
 
 
     # additionally, save as grid
-    grid = torch.stack(all_samples, 0)
-    grid = rearrange(grid, 'n b c h w -> (n b) c h w')
-    grid = make_grid(grid, nrow=opt.n_samples)
+    #grid = torch.stack(all_samples, 0)
+    #grid = rearrange(grid, 'n b c h w -> (n b) c h w')
+    #grid = make_grid(grid, nrow=opt.n_samples)
 
     # to image
-    grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
-    Image.fromarray(grid.astype(np.uint8)).save(os.path.join(outpath, f'{prompt.replace(" ", "-")}.png'))
+    #grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
+    #Image.fromarray(grid.astype(np.uint8)).save(os.path.join(outpath, f'{prompt.replace(" ", "-")}.png'))
 
     print(f"Your samples are ready and waiting four you here: \n{outpath} \nEnjoy.")

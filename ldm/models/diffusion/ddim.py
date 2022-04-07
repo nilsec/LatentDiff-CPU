@@ -18,7 +18,8 @@ class DDIMSampler(object):
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
             if attr.device != torch.device("cuda"):
-                attr = attr.to(torch.device("cuda"))
+                pass
+                #attr = attr.to(torch.device("cuda"))
         setattr(self, name, attr)
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
@@ -74,6 +75,7 @@ class DDIMSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
+               intermediate_callback=None,
                # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
                ):
@@ -106,6 +108,7 @@ class DDIMSampler(object):
                                                     log_every_t=log_every_t,
                                                     unconditional_guidance_scale=unconditional_guidance_scale,
                                                     unconditional_conditioning=unconditional_conditioning,
+                                                    intermediate_callback=intermediate_callback,
                                                     )
         return samples, intermediates
 
@@ -115,7 +118,7 @@ class DDIMSampler(object):
                       callback=None, timesteps=None, quantize_denoised=False,
                       mask=None, x0=None, img_callback=None, log_every_t=100,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None,):
+                      unconditional_guidance_scale=1., unconditional_conditioning=None, intermediate_callback=None):
         device = self.model.betas.device
         b = shape[0]
         if x_T is None:
@@ -152,8 +155,10 @@ class DDIMSampler(object):
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning)
             img, pred_x0 = outs
+            print(img.shape, pred_x0.shape)
             if callback: callback(i)
-            if img_callback: img_callback(pred_x0, i)
+            if img_callback: img_callback(pred_x0, i, total_steps)
+            if intermediate_callback: intermediate_callback(img, i)
 
             if index % log_every_t == 0 or index == total_steps - 1:
                 intermediates['x_inter'].append(img)
