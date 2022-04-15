@@ -46,9 +46,10 @@ class Watcher:
 class Handler(PatternMatchingEventHandler):
     def __init__(self, patterns):
         super().__init__(patterns=patterns)
+        self.current_process = None
 
-    @staticmethod
-    def on_any_event(event):
+    #@staticmethod
+    def on_any_event(self, event):
         if event.is_directory:
             return None
 
@@ -62,10 +63,17 @@ class Handler(PatternMatchingEventHandler):
             h = 256
             w = 256
             steps = 10
+            eta = 0.0
             print(f"Request number: {request_number}")
             print(f"Latest request {latest_file}")
             print(f"Prompt: {prompt}")
-            subprocess.Popen(f'python ./scripts/txt2img.py --prompt "{prompt}" --ddim_eta 0.0 --n_samples 1 --n_iter 1 --scale 5.0  --ddim_steps 10 --H 256 --W 256 --request_number {request_number}', shell=True)
+            if self.current_process is not None:
+                print("Killing current process...")
+                self.current_process.terminate()
+                self.current_process.wait()
+                print("Current process killed, start new...")
+
+            self.current_process = subprocess.Popen(f'python ./scripts/txt2img.py --prompt "{prompt}" --ddim_eta {eta} --n_samples 1 --n_iter 1 --scale 5.0  --ddim_steps {steps} --H 256 --W 512 --request_number {request_number}', shell=True)
 
         elif event.event_type == 'modified':
             # Taken any action here when a file is modified.
